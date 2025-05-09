@@ -12,7 +12,7 @@ This deployment assumes a pre-provisioned Virtual Network (VNet) and Azure subsc
 
 The segregation in terms of technical constructs is described below, showing where the AI Landing Zone Accelerator sits in an end-to-end setup:
 
-![Design Construct](assets/construct.png "Design Construct")
+![Design Construct](assets/construct.PNG "Design Construct")
 
 ## 2 High Level Design
 
@@ -20,7 +20,7 @@ The segregation in terms of technical constructs is described below, showing whe
 
 The diagram illustrates the core components of the AI Acceleration Space, including data ingress/egress, compute resources, networking, and security layers.
 
-![Architecture Diagram](assets/architecture.png "Architecture Diagram")
+![Architecture Diagram](assets/architecture.PNG "Architecture Diagram")
 
 #### Key Design Elements
 
@@ -36,7 +36,7 @@ The diagram illustrates the core components of the AI Acceleration Space, includ
 
 #### Platform Landing Zone Integration
 
-![Platform Landing Zone](assets/landing_zones.png "Platform Landing Zones")
+![Platform Landing Zone](assets/landing_zones.PNG "Platform Landing Zones")
 
 In the context of [Platform Landing Zones](https://learn.microsoft.com/en-us/azure/cloud-adoption-framework/ready/landing-zone/), this AI Accelerator acts as a ready-made application landing zone that can be deployed in a subscription that leverages on an empty spoke VNet. 
 
