@@ -1,7 +1,12 @@
+data "http" "my_ip" {
+  url = "https://api.ipify.org"
+}
+
 # This ensures we have unique CAF compliant names for our resources.
 module "naming" {
   source  = "Azure/naming/azurerm"
   version = "~> 0.3"
+  suffix  = [var.base_name]
 }
 
 # AI Search AVM Module
@@ -15,9 +20,11 @@ module "search_service" {
   name                = local.search_service_name
 
   sku                           = "standard"
+  semantic_search_sku           = "free"
   public_network_access_enabled = true
 
-  allowed_ips = var.ingress_client_ip
+  # Allow access only from SEED IPs
+  allowed_ips = concat([local.my_ip], var.ingress_client_ip)
 
   local_authentication_enabled = false # Force usage of Entra ID
   managed_identities = {
@@ -33,11 +40,14 @@ module "search_service" {
       resource_group_name           = var.virtual_network_resource_group_name
     }
   }
+
+  tags = var.default_tags
 }
 
 resource "azurerm_private_dns_zone" "ai_search_dns_zone" {
   name                = "privatelink.aisearch.windows.net"
   resource_group_name = var.virtual_network_resource_group_name
+  tags                = var.default_tags
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "ai_search_dns_link" {
@@ -45,6 +55,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "ai_search_dns_link" {
   private_dns_zone_name = azurerm_private_dns_zone.ai_search_dns_zone.name
   resource_group_name   = var.virtual_network_resource_group_name
   virtual_network_id    = var.vnet_id
+  tags                  = var.default_tags
 }
 
 resource "azurerm_private_dns_a_record" "ai_search_dns_a_record" {
@@ -55,6 +66,7 @@ resource "azurerm_private_dns_a_record" "ai_search_dns_a_record" {
   resource_group_name = var.virtual_network_resource_group_name
   ttl                 = 300
   zone_name           = azurerm_private_dns_zone.ai_search_dns_zone.name
+  tags                = var.default_tags
 }
 
 resource "azurerm_monitor_diagnostic_setting" "search_service" {

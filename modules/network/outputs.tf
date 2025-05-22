@@ -10,15 +10,6 @@ output "app_services_subnet_id" {
   value = azurerm_subnet.app_services.id
 }
 
-
-output "app_gateway_subnet_name" {
-  value = azurerm_subnet.app_gateway.name
-}
-
-output "app_gateway_subnet_id" {
-  value = azurerm_subnet.app_gateway.id
-}
-
 output "private_endpoints_subnet_name" {
   value = azurerm_subnet.private_endpoints.name
 }

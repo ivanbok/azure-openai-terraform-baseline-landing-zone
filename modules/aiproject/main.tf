@@ -4,9 +4,11 @@ module "naming" {
   version = "~> 0.3"
 }
 
+# -- AI Project AVM Module --
+# Ref: https://registry.terraform.io/modules/Azure/avm-res-machinelearningservices-workspace/azurerm/latest
 module "project" {
   source  = "Azure/avm-res-machinelearningservices-workspace/azurerm"
-  version = "0.4.1"
+  version = "0.6.0" # "0.4.1"
 
   name                = local.project.name
   location            = var.location
@@ -24,21 +26,34 @@ module "project" {
     user_assigned_resource_ids = []
   }
 
-  is_private = false
+  storage_access_type = "identity"
+  storage_account = {
+    create_new  = false
+    resource_id = var.ai_foundry_storage_account_id
+  }
+
+  key_vault = {
+    create_new  = false
+    resource_id = var.key_vault_id
+  }
+
+  is_private = false # Set to false for testing
   workspace_managed_network = {
     isolation_mode = "Disabled"
     spark_ready    = true
   }
+
+  tags = var.default_tags
 }
 
 # There is currently no way to use azurerm provider to create an online endpoint. We therefore need to use azapi
 # https://learn.microsoft.com/en-us/answers/questions/1168249/create-a-managed-ml-inference-endpoint-and-deploym
 resource "azapi_resource" "ml_online_endpoint" {
-  depends_on = [ module.project ]
-  type      = "Microsoft.MachineLearningServices/workspaces/onlineEndpoints@2025-01-01-preview"
-  name      = "ept-${local.project.name}"
-  location  = var.location
-  parent_id = module.project.resource_id
+  depends_on = [module.project]
+  type       = "Microsoft.MachineLearningServices/workspaces/onlineEndpoints@2025-01-01-preview"
+  name       = "ept-${local.project.name}"
+  location   = var.location
+  parent_id  = module.project.resource_id
 
   identity {
     type = "SystemAssigned"
@@ -46,9 +61,9 @@ resource "azapi_resource" "ml_online_endpoint" {
 
   body = {
     properties = {
-      description           = "This is the /score endpoint for the prompt flow deployment"
-      authMode              = "Key"     # May consider using RBAC instead of Key Auth
-      publicNetworkAccess   = "Enabled" # You may set this to "Disabled" if you want to use a private endpoint
+      description         = "This is the /score endpoint for the prompt flow deployment"
+      authMode            = "Key"     # May consider using RBAC instead of Key Auth
+      publicNetworkAccess = "Enabled" # Temporarily Enabled for testing
     }
     kind = "Managed"
   }
@@ -61,6 +76,14 @@ resource "azapi_resource" "ml_online_endpoint" {
       body["properties"]["AzureAsyncOperationUri"]
     ]
   }
+}
+
+# -- Role Assignments for Project (for usage of Agent Service) -- #
+resource "azurerm_role_assignment" "workspace_azure_ai_developer" {
+  scope              = var.openai_resource_id
+  role_definition_id = local.azure_ai_developer_id
+  principal_id       = module.project.workspace_identity.principal_id
+  principal_type     = "ServicePrincipal"
 }
 
 # -- Role Assignments for Endpoint -- #
@@ -99,6 +122,14 @@ resource "azurerm_role_assignment" "endpoint_search_index_data_reader" {
   count              = var.provision_ai_search ? 1 : 0
   scope              = var.ai_search_resource_id
   role_definition_id = local.search_index_data_reader_id
+  principal_id       = azapi_resource.ml_online_endpoint.output.identity.principalId
+  principal_type     = "ServicePrincipal"
+}
+
+resource "azurerm_role_assignment" "endpoint_search_service_contributor" {
+  count              = var.provision_ai_search ? 1 : 0
+  scope              = var.ai_search_resource_id
+  role_definition_id = local.search_service_contributor_id
   principal_id       = azapi_resource.ml_online_endpoint.output.identity.principalId
   principal_type     = "ServicePrincipal"
 }

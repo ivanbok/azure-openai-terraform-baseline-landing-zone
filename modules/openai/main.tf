@@ -1,25 +1,43 @@
+data "http" "my_ip" {
+  url = "https://api.ipify.org"
+}
+
+module "naming" {
+  source  = "Azure/naming/azurerm"
+  version = "~> 0.3"
+  suffix  = [var.base_name]
+}
+
+# Generate a random suffix for the OpenAI Subdomain
+resource "random_string" "suffix" {
+  length  = 4
+  upper   = false
+  lower   = true
+  numeric = true
+  special = false
+}
+
 resource "azurerm_cognitive_account" "openai" {
-  name                = local.openai_name
-  location            = var.openai_location
-  resource_group_name = var.resource_group_name
-  kind                = "OpenAI"
-  sku_name            = "S0"
-  custom_subdomain_name = "oai${var.base_name}"
+  name                  = local.openai_name
+  location              = var.openai_location
+  resource_group_name   = var.resource_group_name
+  kind                  = "OpenAI"
+  sku_name              = "S0"
+  custom_subdomain_name = "oai${var.base_name}${random_string.suffix.result}"
 
   network_acls {
-    default_action = length(var.ingress_client_ip) > 0 ? "Deny" : "Allow"
-    ip_rules       = var.ingress_client_ip
+    default_action = "Deny"
+    ip_rules       = concat([local.my_ip], var.ingress_client_ip, var.azureml_service_tag_ip_ranges)
   }
 
   public_network_access_enabled      = true
   local_auth_enabled                 = true
   outbound_network_access_restricted = true
-  tags = {}
+  tags                               = var.default_tags
 }
 
 resource "azurerm_cognitive_deployment" "openai_deployments" {
-  for_each = toset(var.openai_models)
-
+  for_each             = toset(var.openai_models)
   name                 = each.key
   cognitive_account_id = azurerm_cognitive_account.openai.id
 
@@ -48,21 +66,44 @@ resource "azurerm_monitor_diagnostic_setting" "openai_diag" {
 }
 
 resource "azurerm_private_endpoint" "openai_pe" {
-  name                = local.openai_private_endpoint
+  depends_on = [
+    azurerm_cognitive_account.openai,
+    azurerm_cognitive_deployment.openai_deployments
+  ]
+
+  name                = "pep-${local.openai_name}"
   location            = var.location
   resource_group_name = var.virtual_network_resource_group_name
 
   subnet_id = var.private_endpoints_subnet_id
 
   private_service_connection {
-    name                           = local.openai_private_endpoint
+    name                           = "pep-${local.openai_name}"
     private_connection_resource_id = azurerm_cognitive_account.openai.id
     subresource_names              = ["account"]
     is_manual_connection           = false
   }
 
-  depends_on = [
-    azurerm_cognitive_account.openai,
-    azurerm_cognitive_deployment.openai_deployments
-  ]
+  private_dns_zone_group {
+    name = "pep-${local.openai_name}"
+    private_dns_zone_ids = [
+      azurerm_private_dns_zone.openai_dns_zone.id,
+    ]
+  }
+  tags = var.default_tags
+}
+
+resource "azurerm_private_dns_zone" "openai_dns_zone" {
+  name                = "privatelink.openai.azure.com"
+  resource_group_name = var.virtual_network_resource_group_name
+  tags                = var.default_tags
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "openai_dns_link" {
+  name                  = "privatelink.openai.azure.com-link"
+  resource_group_name   = var.virtual_network_resource_group_name
+  private_dns_zone_name = azurerm_private_dns_zone.openai_dns_zone.name
+  virtual_network_id    = var.vnet_id
+  registration_enabled  = false
+  tags                  = var.default_tags
 }

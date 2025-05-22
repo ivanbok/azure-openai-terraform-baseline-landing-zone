@@ -1,11 +1,6 @@
 variable "subscription_id" {
   description = "The subscription ID where the resources will be deployed."
-  type        = string  
-}
-
-variable "user_principal_ids" {
-  description = "Principal IDs of the Users you want to grant access to AI Foundry Hub in your subscription."
-  type        = list(string)
+  type        = string
 }
 
 variable "workload_resource_group_name" {
@@ -14,16 +9,17 @@ variable "workload_resource_group_name" {
 }
 
 variable "base_name" {
-  description = "This is the base name for each Azure resource name (6-12 chars)"
+  description = "This is the base name for each Azure resource name (4-12 chars)"
   type        = string
+
   validation {
-    condition     = length(var.base_name) >= 6 && length(var.base_name) <= 12
-    error_message = "Base name must be between 6 and 12 characters."
+    condition     = length(var.base_name) >= 4 && length(var.base_name) <= 12
+    error_message = "Base name must be between 4 and 12 characters."
   }
 }
 
 variable "openai_location" {
-  description = "The location of the OpenAI deployment. This may be be in a different region than the rest of the resources due to model support."
+  description = "The location of the OpenAI deployment. This is to overcome regional limitations of Azure OpenAI."
   type        = string
   default     = "eastus2"
 }
@@ -31,7 +27,7 @@ variable "openai_location" {
 variable "openai_models" {
   description = "The models to be deployed in the OpenAI resource."
   type        = list(string)
-  default     = ["gpt-35-turbo"]
+  default     = []
 
   validation {
     condition     = alltrue([for model in var.openai_models : contains(keys(var.openai_version_map), model)])
@@ -39,7 +35,6 @@ variable "openai_models" {
   }
 }
 
-# Add or edit as required
 variable "openai_version_map" {
   type = map(string)
   default = {
@@ -58,50 +53,117 @@ variable "provision_ai_search" {
 }
 
 variable "existing_resource_id_for_spoke_vnet" {
-  type    = string
-  default = "/subscriptions/<subscription-id>/resourceGroups/<vnet-rg>/providers/Microsoft.Network/virtualNetworks/<vnet-name>"
+  description = "The resource ID of the existing VNet"
+  type        = string
+
+  validation {
+    condition = can(regex(
+      "^/subscriptions/[0-9a-fA-F-]+/resourceGroups/[^/]+/providers/Microsoft\\.Network/virtualNetworks/[^/]+$",
+      var.existing_resource_id_for_spoke_vnet
+    ))
+    error_message = <<EOT
+    The value must be a valid Azure Virtual Network resource ID in the format of 
+    /subscriptions/<subscription-id>/resourceGroups/<vnet-resource-group>/providers/Microsoft.Network/virtualNetworks/<vnet-name>
+    EOT
+  }
 }
 
 variable "existing_resource_id_for_udr" {
-  type    = string
-  default = "/subscriptions/<subscription-id>/resourceGroups/<vnet-rg>/providers/Microsoft.Network/routeTables/<rtb-name>"
+  description = "The resource ID of the existing User Defined Route (UDR). Optional, provide an empty string if not using UDR."
+  type        = string
+
+  validation {
+    condition = can(regex(
+      "^$|^/subscriptions/[0-9a-fA-F-]+/resourceGroups/[^/]+/providers/Microsoft\\.Network/routeTables/[^/]+$",
+      var.existing_resource_id_for_udr
+    ))
+    error_message = <<EOT
+    The value must be either empty or a valid Azure Route Table resource ID in the format:
+    /subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.Network/routeTables/<route-table-name>
+
+    If not using UDR, this variable can be left as an empty string.
+    EOT
+  }
 }
 
-# If your organization has a specific set of IPs that need to be allowlisted, you can add them here.
+# This is to allow ingress from specific IPs, such as your corporate network public IPs
 variable "ingress_client_ip" {
-  description = "Allowlist for Ingress IPs (CloudFlare WARP Proxy)."
+  description = "Allowlist for Ingress IPs (e.g. your corporate network public IPs)."
   type        = list(string)
-  default     = []
+  default = []
+
+  validation {
+    condition = alltrue([
+      for ip in var.ingress_client_ip :
+      can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}$", ip))
+    ])
+    error_message = "Each item in ingress_client_ip must be a valid IPv4 address."
+  }
 }
 
 variable "bastion_subnet_prefix" {
   description = "CIDR prefix for the bastion (jumpbox) subnet."
   type        = string
+
+  validation {
+    condition = can(regex(
+      "^([0-9]{1,3}\\.){3}[0-9]{1,3}/([0-9]|[1-2][0-9]|3[0-2])$",
+      var.bastion_subnet_prefix
+    ))
+    error_message = "The value must be a valid IPv4 CIDR block (e.g., 192.168.1.0/24)."
+  }
 }
 
 variable "app_services_subnet_prefix" {
   description = "CIDR prefix for the app services subnet."
   type        = string
-}
 
-variable "app_gateway_subnet_prefix" {
-  description = "CIDR prefix for the app gateway subnet."
-  type        = string
+  validation {
+    condition = can(regex(
+      "^([0-9]{1,3}\\.){3}[0-9]{1,3}/([0-9]|[1-2][0-9]|3[0-2])$",
+      var.app_services_subnet_prefix
+    ))
+    error_message = "The value must be a valid IPv4 CIDR block (e.g., 192.168.1.0/24)."
+  }
 }
 
 variable "private_endpoints_subnet_prefix" {
   description = "CIDR prefix for the private endpoints subnet."
   type        = string
+
+  validation {
+    condition = can(regex(
+      "^([0-9]{1,3}\\.){3}[0-9]{1,3}/([0-9]|[1-2][0-9]|3[0-2])$",
+      var.private_endpoints_subnet_prefix
+    ))
+    error_message = "The value must be a valid IPv4 CIDR block (e.g., 192.168.1.0/24)."
+  }
 }
 
 variable "agents_subnet_prefix" {
   description = "CIDR prefix for the agents subnet."
   type        = string
+
+  validation {
+    condition = can(regex(
+      "^([0-9]{1,3}\\.){3}[0-9]{1,3}/([0-9]|[1-2][0-9]|3[0-2])$",
+      var.agents_subnet_prefix
+    ))
+    error_message = "The value must be a valid IPv4 CIDR block (e.g., 192.168.1.0/24)."
+  }
 }
 
 variable "jumpbox_subnet_prefix" {
   description = "CIDR prefix for the jumpbox subnet."
   type        = string
+
+  validation {
+    condition = can(regex(
+      "^([0-9]{1,3}\\.){3}[0-9]{1,3}/([0-9]|[1-2][0-9]|3[0-2])$",
+      var.jumpbox_subnet_prefix
+    ))
+    error_message = "The value must be a valid IPv4 CIDR block (e.g., 192.168.1.0/24)."
+  }
 }
 
 variable "telemetry_opt_out" {
@@ -113,10 +175,14 @@ variable "telemetry_opt_out" {
 variable "jump_box_admin_name" {
   description = "Name of the administrator account."
   type        = string
+  default     = "azureuser"
 }
 
-variable "jump_box_admin_password" {
-  description = "Password for the administrator account."
-  type        = string
-  sensitive   = true
+variable "default_tags" {
+  description = "Default tags to be applied to all resources."
+  type        = map(string)
+  default = {
+    project    = "gcc-aas"
+    created_by = "terraform"
+  }
 }

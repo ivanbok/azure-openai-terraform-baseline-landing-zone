@@ -1,7 +1,5 @@
 locals {
-  app_deploy_storage_name             = "stg${var.base_name}"
-  app_deploy_storage_private_endpoint = "pep-st${var.base_name}"
-  ml_storage_name                     = "stml${var.base_name}"
-  ml_blob_storage_private_endpoint    = "pep-blob-stml${var.base_name}"
-  ml_file_storage_private_endpoint    = "pep-file-stml${var.base_name}"
+  my_ip                   = trimspace(data.http.my_ip.response_body)
+  app_deploy_storage_name = module.app_deploy_storage_account_naming.storage_account.name_unique
+  ml_storage_name         = module.ml_deploy_storage_account_naming.storage_account.name_unique
 }

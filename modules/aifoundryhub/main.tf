@@ -1,8 +1,19 @@
+data "http" "my_ip" {
+  url = "https://api.ipify.org"
+}
+module "naming" {
+  source  = "Azure/naming/azurerm"
+  version = "~> 0.3"
+  prefix  = ["aihub"] # Generally, prefixes are not recommended. However, Hubs are part of ML workspaces and this identifies a Hub resource
+  suffix  = [var.base_name]
+}
+
 # -- AI Hub --
+#: https://registry.terraform.io/modules/Azure/avm-res-machinelearningservices-workspace/azurerm/latest
 module "ai_hub" {
-  source  = "Azure/avm-res-machinelearningservices-workspace/azurerm"
-  version = "0.4.1"
-  name                = "aihub-${var.base_name}"
+  source              = "Azure/avm-res-machinelearningservices-workspace/azurerm"
+  version             = "0.6.0" # "0.4.1"
+  name                = local.hub_name
   location            = var.location
   resource_group_name = var.resource_group_name
   kind                = "Hub"
@@ -15,7 +26,8 @@ module "ai_hub" {
   workspace_friendly_name = "Azure OpenAI Chat Hub"
   workspace_description   = "Hub to support the Microsoft Learn Azure OpenAI baseline chat implementation."
 
-  ip_allowlist = var.ingress_client_ip
+  # Allow access only from SEED IPs
+  ip_allowlist = concat([local.my_ip], var.ingress_client_ip)
 
   workspace_managed_network = {
     isolation_mode = "AllowOnlyApprovedOutbound"
@@ -76,7 +88,10 @@ module "ai_hub" {
     resource_id = var.appinsights_id
   }
 
+  tags = var.default_tags
+
   # # Removed as it is not supported for OpenAI, only Cognitive Services Account
+  # # In turn, Cognitive services account cannot be used as public access must be enabled for this to work
   # # Can be added back in future if new AVM version supports it
   # aiservices = {
   #   resource_group_id         = var.resource_group_id
@@ -94,10 +109,10 @@ resource "azapi_resource" "aoai_connection" {
 
   body = {
     properties = {
-      authType                    = "AAD"
-      category                    = "AzureOpenAI"
-      isSharedToAll               = true
-      sharedUserList              = []
+      authType       = "AAD"
+      category       = "AzureOpenAI"
+      isSharedToAll  = true
+      sharedUserList = []
       metadata = {
         ApiType    = "Azure"
         ResourceId = var.openai_resource_id
@@ -126,10 +141,10 @@ resource "azapi_resource" "ai_search_connection" {
 
   body = {
     properties = {
-      authType                    = "AAD"
-      category                    = "CognitiveSearch"
-      isSharedToAll               = true
-      sharedUserList              = []
+      authType       = "AAD"
+      category       = "CognitiveSearch"
+      isSharedToAll  = true
+      sharedUserList = []
       metadata = {
         ApiType    = "Azure"
         ResourceId = var.ai_search_resource_id
@@ -165,16 +180,40 @@ resource "azurerm_monitor_diagnostic_setting" "aihub" {
 
 # -- Private Endpoint for AI Hub --
 resource "azurerm_private_endpoint" "ml_pe" {
-  name                = "pep-aiproj-${var.base_name}"
+  name                = "pep-${local.hub_name}"
   location            = var.location
   resource_group_name = var.virtual_network_resource_group_name
 
   subnet_id = var.private_endpoints_subnet_id
 
   private_service_connection {
-    name                           = "pep-aiproj-${var.base_name}"
+    name                           = "pep-${local.hub_name}"
     private_connection_resource_id = module.ai_hub.resource_id
     subresource_names              = ["amlworkspace"]
     is_manual_connection           = false
   }
+
+  private_dns_zone_group {
+    name = "pep-${local.hub_name}"
+    private_dns_zone_ids = [
+      azurerm_private_dns_zone.ai_hub_dns_zone.id,
+    ]
+  }
+
+  tags = var.default_tags
+}
+
+resource "azurerm_private_dns_zone" "ai_hub_dns_zone" {
+  name                = "privatelink.api.azureml.ms"
+  resource_group_name = var.virtual_network_resource_group_name
+  tags                = var.default_tags
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "key_vault_dns_link" {
+  name                  = "privatelink.api.azureml.ms-link"
+  resource_group_name   = var.virtual_network_resource_group_name
+  private_dns_zone_name = azurerm_private_dns_zone.ai_hub_dns_zone.name
+  virtual_network_id    = var.vnet_id
+  registration_enabled  = false
+  tags                  = var.default_tags
 }

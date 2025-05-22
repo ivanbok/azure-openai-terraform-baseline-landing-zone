@@ -7,9 +7,14 @@ terraform {
       version = "~> 4.0"
     }
 
-    azapi = {
-      source  = "Azure/azapi"
-      version = "~> 2.0"
+    http = {
+      source  = "hashicorp/http"
+      version = "~> 3.5"
+    }
+
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.5"
     }
   }
 }

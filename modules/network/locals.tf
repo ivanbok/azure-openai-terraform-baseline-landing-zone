@@ -1,16 +1,10 @@
 # ------------------ LOCALS ------------------
 locals {
-  app_gateway_subnet_name         = "snet-appGateway"
-  app_service_subnet_name         = "snet-appServicePlan"
-  private_endpoints_subnet_name   = "snet-privateEndpoints"
-  agents_subnet_name              = "snet-agents"
-  jumpbox_subnet_name             = "snet-jumpbox"
+  app_services_suffix      = "appServices"
+  private_endpoints_suffix = "privateEndpoints"
+  agents_suffix            = "agents"
+  jumpbox_suffix           = "jumpbox"
 
-  nsg_app_gateway_name            = "nsg-appGatewaySubnet"
-  nsg_app_services_name           = "nsg-appServicesSubnet"
-  nsg_private_endpoints_name      = "nsg-privateEndpointsSubnet"
-  nsg_agents_name                 = "nsg-agentsSubnet"
-  nsg_jumpbox_name                = "nsg-jumpboxSubnet"
 }
 
 # Function to get UDR ID

@@ -1,9 +1,4 @@
 # ---------------- DATA SOURCES ---------------- #
-# Data source for existing virtual network (may not be needed)
-data "azurerm_virtual_network" "vnet" {
-  name                = var.vnet_name
-  resource_group_name = var.virtual_network_resource_group_name
-}
 
 # Fetch the existing UDR if provided
 data "azurerm_route_table" "internet_udr" {
@@ -14,9 +9,15 @@ data "azurerm_route_table" "internet_udr" {
 
 # ------------------ RESOURCES ------------------ #
 
+module "app_services_naming" {
+  source  = "Azure/naming/azurerm"
+  version = "~> 0.3"
+  suffix  = [local.app_services_suffix]
+}
+
 # App Services Subnet
 resource "azurerm_subnet" "app_services" {
-  name                 = local.app_service_subnet_name
+  name                 = module.app_services_naming.subnet.name
   resource_group_name  = var.virtual_network_resource_group_name
   virtual_network_name = var.vnet_name
   address_prefixes     = [var.app_services_subnet_prefix]
@@ -40,7 +41,7 @@ resource "azurerm_subnet_route_table_association" "app_services" {
 }
 
 resource "azurerm_network_security_group" "app_services_nsg" {
-  name                = "nsg-${local.app_service_subnet_name}"
+  name                = module.app_services_naming.network_security_group.name
   location            = var.location
   resource_group_name = var.virtual_network_resource_group_name
 
@@ -69,108 +70,20 @@ resource "azurerm_network_security_group" "app_services_nsg" {
   }
 }
 
-# App Gateway Subnet
-
-resource "azurerm_subnet" "app_gateway" {
-  name                 = local.app_gateway_subnet_name
-  resource_group_name  = var.virtual_network_resource_group_name
-  virtual_network_name = var.vnet_name
-  address_prefixes     = [var.app_gateway_subnet_prefix]
-  private_endpoint_network_policies     = "Disabled"
-  private_link_service_network_policies_enabled = true
-}
-
-resource "azurerm_subnet_network_security_group_association" "app_gateway" {
-  subnet_id                 = azurerm_subnet.app_gateway.id
-  network_security_group_id = azurerm_network_security_group.app_gateway_nsg.id
-}
-
-resource "azurerm_network_security_group" "app_gateway_nsg" {
-  name                = "nsg-${local.app_gateway_subnet_name}"
-  location            = var.location
-  resource_group_name = var.virtual_network_resource_group_name
-
-  security_rule {
-    name                       = "AppGw.In.Allow.ControlPlane"
-    priority                   = 100
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "*"
-    source_port_range          = "*"
-    destination_port_range     = "65200-65535"
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
-  }
-
-  security_rule {
-    name                       = "AppGw.In.Allow443.Internet"
-    priority                   = 110
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "443"
-    source_address_prefix      = "Internet"
-    destination_address_prefix = var.app_gateway_subnet_prefix
-  }
-
-  security_rule {
-    name                       = "AppGw.In.Allow.LoadBalancer"
-    priority                   = 120
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "*"
-    source_port_range          = "*"
-    destination_port_range     = "*"
-    source_address_prefix      = "AzureLoadBalancer"
-    destination_address_prefix = "*"
-  }
-
-  security_rule {
-    name                       = "DenyAllInBound"
-    priority                   = 1000
-    direction                  = "Inbound"
-    access                     = "Deny"
-    protocol                   = "*"
-    source_port_range          = "*"
-    destination_port_range     = "*"
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
-  }
-
-  security_rule {
-    name                       = "AppGw.Out.Allow.PrivateEndpoints"
-    priority                   = 100
-    direction                  = "Outbound"
-    access                     = "Allow"
-    protocol                   = "*"
-    source_port_range          = "*"
-    destination_port_range     = "*"
-    source_address_prefix      = var.app_gateway_subnet_prefix
-    destination_address_prefix = var.private_endpoints_subnet_prefix
-  }
-
-  security_rule {
-    name                       = "AppPlan.Out.Allow.AzureMonitor"
-    priority                   = 110
-    direction                  = "Outbound"
-    access                     = "Allow"
-    protocol                   = "*"
-    source_port_range          = "*"
-    destination_port_range     = "*"
-    source_address_prefix      = var.app_gateway_subnet_prefix
-    destination_address_prefix = "AzureMonitor"
-  }
-}
-
 # Private Endpoints Subnet
 
+module "private_endpoints_naming" {
+  source  = "Azure/naming/azurerm"
+  version = "~> 0.3"
+  suffix  = [local.private_endpoints_suffix]
+}
+
 resource "azurerm_subnet" "private_endpoints" {
-  name                 = local.private_endpoints_subnet_name
-  resource_group_name  = var.virtual_network_resource_group_name
-  virtual_network_name = var.vnet_name
-  address_prefixes     = [var.private_endpoints_subnet_prefix]
-  private_endpoint_network_policies     = "Disabled"
+  name                                          = module.private_endpoints_naming.subnet.name
+  resource_group_name                           = var.virtual_network_resource_group_name
+  virtual_network_name                          = var.vnet_name
+  address_prefixes                              = [var.private_endpoints_subnet_prefix]
+  private_endpoint_network_policies             = "Disabled"
   private_link_service_network_policies_enabled = true
 }
 
@@ -186,7 +99,7 @@ resource "azurerm_subnet_route_table_association" "private_endpoints" {
 }
 
 resource "azurerm_network_security_group" "private_endpoints_nsg" {
-  name                = "nsg-${local.private_endpoints_subnet_name}"
+  name                = module.private_endpoints_naming.network_security_group.name
   location            = var.location
   resource_group_name = var.virtual_network_resource_group_name
 
@@ -205,12 +118,18 @@ resource "azurerm_network_security_group" "private_endpoints_nsg" {
 
 # Agents Subnet
 
+module "agents_naming" {
+  source  = "Azure/naming/azurerm"
+  version = "~> 0.3"
+  suffix  = [local.agents_suffix]
+}
+
 resource "azurerm_subnet" "agents" {
-  name                 = local.agents_subnet_name
-  resource_group_name  = var.virtual_network_resource_group_name
-  virtual_network_name = var.vnet_name
-  address_prefixes     = [var.agents_subnet_prefix]
-  private_endpoint_network_policies     = "Disabled"
+  name                                          = module.agents_naming.subnet.name
+  resource_group_name                           = var.virtual_network_resource_group_name
+  virtual_network_name                          = var.vnet_name
+  address_prefixes                              = [var.agents_subnet_prefix]
+  private_endpoint_network_policies             = "Disabled"
   private_link_service_network_policies_enabled = true
 }
 
@@ -226,7 +145,7 @@ resource "azurerm_subnet_route_table_association" "agents" {
 }
 
 resource "azurerm_network_security_group" "agents_nsg" {
-  name                = "nsg-${local.agents_subnet_name}"
+  name                = module.agents_naming.network_security_group.name
   location            = var.location
   resource_group_name = var.virtual_network_resource_group_name
 
@@ -245,12 +164,18 @@ resource "azurerm_network_security_group" "agents_nsg" {
 
 # Jumpbox Subnet
 
+module "jumpbox_naming" {
+  source  = "Azure/naming/azurerm"
+  version = "~> 0.3"
+  suffix  = [local.jumpbox_suffix]
+}
+
 resource "azurerm_subnet" "jumpbox" {
-  name                 = local.jumpbox_subnet_name
-  resource_group_name  = var.virtual_network_resource_group_name
-  virtual_network_name = var.vnet_name
-  address_prefixes     = [var.jumpbox_subnet_prefix]
-  private_endpoint_network_policies     = "Disabled"
+  name                                          = module.jumpbox_naming.subnet.name
+  resource_group_name                           = var.virtual_network_resource_group_name
+  virtual_network_name                          = var.vnet_name
+  address_prefixes                              = [var.jumpbox_subnet_prefix]
+  private_endpoint_network_policies             = "Disabled"
   private_link_service_network_policies_enabled = true
 }
 
@@ -266,7 +191,7 @@ resource "azurerm_subnet_route_table_association" "jumpbox" {
 }
 
 resource "azurerm_network_security_group" "jumpbox_nsg" {
-  name                = "nsg-${local.jumpbox_subnet_name}"
+  name                = module.jumpbox_naming.network_security_group.name
   location            = var.location
   resource_group_name = var.virtual_network_resource_group_name
 

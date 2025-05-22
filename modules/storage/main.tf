@@ -1,4 +1,14 @@
+data "http" "my_ip" {
+  url = "https://api.ipify.org"
+}
+
 # App Deploy Storage Account
+module "app_deploy_storage_account_naming" {
+  source  = "Azure/naming/azurerm"
+  version = "~> 0.3"
+  suffix  = [var.base_name]
+}
+
 resource "azurerm_storage_account" "app" {
   name                     = local.app_deploy_storage_name
   resource_group_name      = var.resource_group_name
@@ -7,18 +17,19 @@ resource "azurerm_storage_account" "app" {
   account_replication_type = "ZRS"
   account_kind             = "StorageV2"
 
-  https_traffic_only_enabled        = true
-  min_tls_version                   = "TLS1_2"
-  public_network_access_enabled     = true
-  cross_tenant_replication_enabled  = false
-  shared_access_key_enabled         = true
+  https_traffic_only_enabled       = true
+  min_tls_version                  = "TLS1_2"
+  public_network_access_enabled    = true
+  cross_tenant_replication_enabled = false
+  shared_access_key_enabled        = true
 
   network_rules {
-    default_action             = length(var.ingress_client_ip) > 0 ? "Deny" : "Allow"
-    bypass                     = ["AzureServices"]
-    ip_rules                   = var.ingress_client_ip
+    default_action = "Deny"
+    bypass         = ["AzureServices"]
+    ip_rules       = concat([local.my_ip], var.ingress_client_ip)
   }
 
+  tags = var.default_tags
 }
 
 resource "azurerm_storage_container" "deploy" {
@@ -29,8 +40,8 @@ resource "azurerm_storage_container" "deploy" {
 
 # Diagnostic settings for blob
 resource "azurerm_monitor_diagnostic_setting" "app_blob" {
-  name               = "default"
-  target_resource_id = "${azurerm_storage_account.app.id}/blobServices/default"
+  name                       = "default"
+  target_resource_id         = "${azurerm_storage_account.app.id}/blobServices/default"
   log_analytics_workspace_id = var.log_workspace_id
 
   enabled_log {
@@ -40,21 +51,35 @@ resource "azurerm_monitor_diagnostic_setting" "app_blob" {
 
 # Private endpoint for app storage
 resource "azurerm_private_endpoint" "app_blob" {
-  name                = local.app_deploy_storage_private_endpoint
+  name                = "pep-${local.app_deploy_storage_name}"
   location            = var.location
   resource_group_name = var.virtual_network_resource_group_name
 
   subnet_id = var.private_endpoints_subnet_id
 
   private_service_connection {
-    name                           = local.app_deploy_storage_private_endpoint
+    name                           = "pep-${local.app_deploy_storage_name}"
     private_connection_resource_id = azurerm_storage_account.app.id
     is_manual_connection           = false
     subresource_names              = ["blob"]
   }
+
+  private_dns_zone_group {
+    name = "pep-${local.app_deploy_storage_name}"
+    private_dns_zone_ids = [
+      azurerm_private_dns_zone.storage_blob_dns_zone.id,
+    ]
+  }
+  tags = var.default_tags
 }
 
 # ML Storage Account
+module "ml_deploy_storage_account_naming" {
+  source  = "Azure/naming/azurerm"
+  version = "~> 0.3"
+  suffix  = ["ml${var.base_name}"]
+}
+
 resource "azurerm_storage_account" "ml" {
   name                     = local.ml_storage_name
   resource_group_name      = var.resource_group_name
@@ -63,23 +88,24 @@ resource "azurerm_storage_account" "ml" {
   account_replication_type = "ZRS"
   account_kind             = "StorageV2"
 
-  https_traffic_only_enabled        = true
-  min_tls_version                   = "TLS1_2"
-  public_network_access_enabled     = true
-  cross_tenant_replication_enabled  = false
-  shared_access_key_enabled         = true
+  https_traffic_only_enabled       = true
+  min_tls_version                  = "TLS1_2"
+  public_network_access_enabled    = true
+  cross_tenant_replication_enabled = false
+  shared_access_key_enabled        = true
 
   network_rules {
-    default_action             = length(var.ingress_client_ip) > 0 ? "Deny" : "Allow"
-    bypass                     = ["AzureServices"]
-    ip_rules                   = var.ingress_client_ip
+    default_action = "Deny"
+    bypass         = ["AzureServices"]
+    ip_rules       = concat([local.my_ip], var.ingress_client_ip)
   }
+  tags = var.default_tags
 }
 
 # Diagnostics
 resource "azurerm_monitor_diagnostic_setting" "ml_blob" {
-  name               = "default"
-  target_resource_id = "${azurerm_storage_account.ml.id}/blobServices/default"
+  name                       = "default"
+  target_resource_id         = "${azurerm_storage_account.ml.id}/blobServices/default"
   log_analytics_workspace_id = var.log_workspace_id
 
   enabled_log {
@@ -93,8 +119,8 @@ resource "azurerm_monitor_diagnostic_setting" "ml_blob" {
 }
 
 resource "azurerm_monitor_diagnostic_setting" "ml_file" {
-  name               = "default"
-  target_resource_id = "${azurerm_storage_account.ml.id}/fileServices/default"
+  name                       = "default"
+  target_resource_id         = "${azurerm_storage_account.ml.id}/fileServices/default"
   log_analytics_workspace_id = var.log_workspace_id
 
   enabled_log {
@@ -109,31 +135,78 @@ resource "azurerm_monitor_diagnostic_setting" "ml_file" {
 
 # Private Endpoints for ML Storage
 resource "azurerm_private_endpoint" "ml_blob" {
-  name                = local.ml_blob_storage_private_endpoint
+  name                = "pep-blob-${local.ml_storage_name}"
   location            = var.location
   resource_group_name = var.virtual_network_resource_group_name
 
   subnet_id = var.private_endpoints_subnet_id
 
   private_service_connection {
-    name                           = local.ml_blob_storage_private_endpoint
+    name                           = "pep-blob-${local.ml_storage_name}"
     private_connection_resource_id = azurerm_storage_account.ml.id
     is_manual_connection           = false
     subresource_names              = ["blob"]
   }
+
+  private_dns_zone_group {
+    name = "pep-blob-${local.ml_storage_name}"
+    private_dns_zone_ids = [
+      azurerm_private_dns_zone.storage_blob_dns_zone.id,
+    ]
+  }
+  tags = var.default_tags
 }
 
 resource "azurerm_private_endpoint" "ml_file" {
-  name                = local.ml_file_storage_private_endpoint
+  name                = "pep-file-${local.ml_storage_name}"
   location            = var.location
   resource_group_name = var.virtual_network_resource_group_name
 
   subnet_id = var.private_endpoints_subnet_id
 
   private_service_connection {
-    name                           = local.ml_file_storage_private_endpoint
+    name                           = "pep-file-${local.ml_storage_name}"
     private_connection_resource_id = azurerm_storage_account.ml.id
     is_manual_connection           = false
     subresource_names              = ["file"]
   }
+
+  private_dns_zone_group {
+    name = "pep-blob-${local.ml_storage_name}"
+    private_dns_zone_ids = [
+      azurerm_private_dns_zone.storage_file_dns_zone.id,
+    ]
+  }
+  tags = var.default_tags
+}
+
+# Private DNS Zones for Storage
+resource "azurerm_private_dns_zone" "storage_blob_dns_zone" {
+  name                = "privatelink.blob.core.windows.net"
+  resource_group_name = var.virtual_network_resource_group_name
+  tags                = var.default_tags
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "storage_blob_dns_link" {
+  name                  = "privatelink.blob.core.windows.net-link"
+  resource_group_name   = var.virtual_network_resource_group_name
+  private_dns_zone_name = azurerm_private_dns_zone.storage_blob_dns_zone.name
+  virtual_network_id    = var.vnet_id
+  registration_enabled  = false
+  tags                  = var.default_tags
+}
+
+resource "azurerm_private_dns_zone" "storage_file_dns_zone" {
+  name                = "privatelink.file.core.windows.net"
+  resource_group_name = var.virtual_network_resource_group_name
+  tags                = var.default_tags
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "storage_file_dns_link" {
+  name                  = "privatelink.file.core.windows.net-link"
+  resource_group_name   = var.virtual_network_resource_group_name
+  private_dns_zone_name = azurerm_private_dns_zone.storage_file_dns_zone.name
+  virtual_network_id    = var.vnet_id
+  registration_enabled  = false
+  tags                  = var.default_tags
 }
